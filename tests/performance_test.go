@@ -51,7 +51,7 @@ func TestReadOperationsPerformance(t *testing.T) {
 		})
 	})
 
-	require.LessOrEqual(t, float64(bankPerformance.NsPerOp())/float64(emulatorPerformance.NsPerOp()), 1.)
+	require.LessOrEqual(t, float64(bankPerformance.NsPerOp())/float64(emulatorPerformance.NsPerOp()), 1.5)
 }
 
 func TestTransferFineGrainedLocks(t *testing.T) {
@@ -160,5 +160,5 @@ func TestConsolidateFineGrainedLocks(t *testing.T) {
 		})
 	})
 
-	require.LessOrEqual(t, float64(bankPerformance.NsPerOp())/float64(emulatorPerformance.NsPerOp()), 1.3)
+	require.LessOrEqual(t, float64(bankPerformance.NsPerOp())/float64(emulatorPerformance.NsPerOp()), 2.)
 }

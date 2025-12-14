@@ -1,72 +1,111 @@
-# RW Bank
+# Read-write Bank
 
 ## Задание
-В этом задании вам предлагается написать свой многопоточный банк, используя тонкие блокировки и RWMutex
+В этом задании вам предлагается написать свой многопоточный банк
+
+
+---
 
 ```go
-// MaxAmount is the maximum allowed amount per account.
-const MaxAmount int64 = 1_000_000_000_000_000_000
-
-var (
-	// ErrInvalidAmount is returned when amount <= 0.
-	ErrInvalidAmount = errors.New("invalid amount")
-
-	// ErrOverflow is returned when an operation would exceed MaxAmount.
-	ErrOverflow = errors.New("overflow")
-
-	// ErrUnderflow is returned when an account lacks sufficient funds.
-	ErrUnderflow = errors.New("underflow")
-)
-
-// Bank defines operations for a thread-safe multi-account bank.
-type Bank interface {
-	// NumberOfAccounts returns the number of accounts in the bank.
-	NumberOfAccounts() int
-
-	// GetAmount returns the current balance of the account at the given index.
-	//
-	// Panics if index is out of bounds.
-	GetAmount(index int) int64
-
-	// TotalAmount returns the total sum of money across all accounts.
-	TotalAmount() int64
-
-	// Deposit adds a positive amount to the specified account and returns the new balance.
-	//
-	// Returns:
-	//   - ErrInvalidAmount if amount <= 0
-	//   - ErrOverflow if the resulting amount would exceed MaxAmount
-	//   - panics if index is out of bounds
-	Deposit(index int, amount int64) (int64, error)
-
-	// Withdraw subtracts a positive amount from the specified account and returns the new balance.
-	//
-	// Returns:
-	//   - ErrInvalidAmount if amount <= 0
-	//   - ErrUnderflow if the account does not have enough funds
-	//   - panics if index is out of bounds
-	Withdraw(index int, amount int64) (int64, error)
-
-	// Transfer moves a positive amount from one account to another.
-	//
-	// Returns:
-	//   - ErrInvalidAmount if amount <= 0
-	//   - error if fromIndex == toIndex
-	//   - ErrUnderflow if source account lacks funds
-	//   - ErrOverflow if the destination account would overflow
-	//   - panics if either index is out of bounds
-	Transfer(fromIndex, toIndex int, amount int64) error
-
-	// Consolidate transfers all funds from a list of source accounts to the target account.
-	// All fromIndices must be unique and must not include toIndex
-	//
-	// Returns:
-	//   - error if fromIndices is empty, contains duplicates, or includes toIndex
-	//   - ErrOverflow if the target account would exceed MaxAmount
-	//   - panics if any index is out of bounds
-	Consolidate(fromIndices []int, toIndex int) error
+func New(accountsNum int) *bankImpl {
+	...
 }
 ```
+
+В конструкторе банка передаётся количество аккаунтов `accountsNum`
+
+---
+
+```go
+func (b *bankImpl) NumberOfAccounts() int {
+	...
+}
+```
+
+Метод ```NumberOfAccounts``` должен возвращать количество аккаунтов в банке
+
+---
+
+```go
+func (b *bankImpl) GetAmount(index int) int64 {
+    ...
+}
+```
+
+Метод `GetAmount` должен возвращать количество денег на аккаунте под номером `index`. При этом индексация аккаунтов
+начинается с 0.
+
+---
+
+```go
+func (b *bankImpl) TotalAmount() int64 {
+	...
+}
+```
+
+Метод `TotalAmount` должен возвращать суммарное количество денег на всех аккаунтах банка.
+
+---
+
+```go
+func (b *bankImpl) Deposit(index int, amount int64) (int64, error) {
+	...
+}
+```
+
+Метод `Deposit` пополняет счёт аккаунта под номером `index`, возвращая новую сумму на счёте после пополнения.
+
+
+```go
+const MaxAmount int64 = 1_000_000_000_000_000_000
+var ErrOverflow = errors.New("overflow")
+```
+
+Если сумма на счёте превысила `MaxAmount`, метод должен вернуть ошибку `ErrOverflow`.
+
+```go
+var ErrInvalidAmount = errors.New("invalid amount")
+```
+
+Если сумма `amount` меньше или равна нулю, метод должен вернуть ошибку `ErrInvalidAmount`.
+
+---
+
+```go
+func (b *bankImpl) Withdraw(index int, amount int64) (int64, error) {
+	...
+}
+```
+
+Метод `Withdraw` выводит деньги с аккаунта под номером `index`, возвращая новую сумму на счёте после пополнения.
+
+
+```go
+var ErrUnderflow = errors.New("underflow")
+```
+
+Метод должен вернуть ошибку `ErrUnderflow`, если сумма вывода превышает остаток на счёте
+
+---
+
+```go
+func (b *bankImpl) Transfer(fromIndex, toIndex int, amount int64) error {
+    ...
+}
+```
+
+Метод `Transfer` переводит `amount` единиц валюты с аккаунта под номером `fromIndex` на аккаунт под номером `toIndex`.
+
+---
+
+
+```go
+func (b *bankImpl) Consolidate(fromIndices []int, toIndex int) error {
+	...
+}
+```
+
+Метод `Consolidate` переводит все деньги с аккаунтов `fromIndices` на аккаунт `toIndex`.
 
 ## Сдача
 * Решение необходимо реализовать в файле [bank.go](./internal/bank/bank.go)
@@ -76,6 +115,7 @@ type Bank interface {
 ## Особенности реализации
 * Используйте тесты и линтер, чтобы заполнить недосказанности, они проверяют все требования условия
 * Рекомендуется сначала написать однопоточную реализацию
+* В этом задании необходимо использовать RWMutex и тонкие блокировки
 
 
 ## Скрипты
