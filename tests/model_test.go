@@ -191,6 +191,66 @@ func TestUnderflowTransfer(t *testing.T) {
 	require.EqualValues(t, 0, bank.GetAmount(1))
 }
 
+func TestTransferDeadlock(t *testing.T) {
+	require.Eventually(t, func() bool {
+		const accounts = 2
+
+		bank := New(accounts)
+		bank.Deposit(0, 1_000_000)
+		bank.Deposit(1, 1_000_000)
+
+		wg := new(sync.WaitGroup)
+		wg.Go(func() {
+			for range 100_000 {
+				bank.Transfer(0, 1, 100)
+			}
+		})
+
+		wg.Go(func() {
+			for range 100_000 {
+				bank.Transfer(1, 0, 100)
+			}
+		})
+
+		wg.Wait()
+		return true
+	}, 5*time.Second, 100*time.Millisecond, "fatal error: all goroutines are asleep - deadlock!")
+}
+
+func TestConsolidateDeadlock(t *testing.T) {
+	require.Eventually(t, func() bool {
+		const accounts = 3
+
+		bank := New(accounts)
+		bank.Deposit(0, 1_000_000)
+		bank.Deposit(1, 1_000_000)
+
+		wg := new(sync.WaitGroup)
+		wg.Go(func() {
+			for range 1_000_000 {
+				bank.Deposit(0, 100)
+				bank.TotalAmount()
+			}
+		})
+
+		wg.Go(func() {
+			for range 1_000_000 {
+				bank.Deposit(1, 100)
+				bank.TotalAmount()
+			}
+		})
+
+		wg.Go(func() {
+			for range 100_000 {
+				bank.Consolidate([]int{1, 0}, 2)
+			}
+		})
+
+		wg.Wait()
+		return true
+	}, 5*time.Second, 100*time.Millisecond, "fatal error: all goroutines are asleep - deadlock!")
+}
+
 func TestInvalidArguments(t *testing.T) {
 	t.Parallel()
 
@@ -291,60 +351,6 @@ func TestStressMultithreaded(t *testing.T) {
 		require.Equal(t, expected[i], actual, "account[%d] mismatch", i)
 	}
 	require.Equal(t, total, bank.TotalAmount())
-}
-
-func TestTransferDeadlock(t *testing.T) {
-	const accounts = 2
-
-	bank := New(accounts)
-	bank.Deposit(0, 1_000_000)
-	bank.Deposit(1, 1_000_000)
-
-	wg := new(sync.WaitGroup)
-	wg.Go(func() {
-		for range 100_000 {
-			bank.Transfer(0, 1, 100)
-		}
-	})
-
-	wg.Go(func() {
-		for range 100_000 {
-			bank.Transfer(1, 0, 100)
-		}
-	})
-
-	wg.Wait()
-}
-
-func TestConsolidateDeadlock(t *testing.T) {
-	const accounts = 3
-
-	bank := New(accounts)
-	bank.Deposit(0, 1_000_000)
-	bank.Deposit(1, 1_000_000)
-
-	wg := new(sync.WaitGroup)
-	wg.Go(func() {
-		for range 1_000_000 {
-			bank.Deposit(0, 100)
-			bank.TotalAmount()
-		}
-	})
-
-	wg.Go(func() {
-		for range 1_000_000 {
-			bank.Deposit(1, 100)
-			bank.TotalAmount()
-		}
-	})
-
-	wg.Go(func() {
-		for range 100_000 {
-			bank.Consolidate([]int{1, 0}, 2)
-		}
-	})
-
-	wg.Wait()
 }
 
 func TestNoChannels(t *testing.T) {
