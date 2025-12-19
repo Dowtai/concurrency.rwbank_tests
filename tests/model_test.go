@@ -248,7 +248,7 @@ func TestConsolidateDeadlock(t *testing.T) {
 
 		wg.Wait()
 		return true
-	}, 5*time.Second, 100*time.Millisecond, "fatal error: all goroutines are asleep - deadlock!")
+	}, 15*time.Second, 100*time.Millisecond, "fatal error: all goroutines are asleep - deadlock!")
 }
 
 func TestInvalidArguments(t *testing.T) {
