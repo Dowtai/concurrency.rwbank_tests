@@ -17,6 +17,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func requireErrorNoPanic(t *testing.T, f func() error) {
+	t.Helper()
+
+	var err error
+	require.NotPanics(t, func() {
+		err = f()
+	})
+	require.Error(t, err)
+}
+
+func requireBalanceErrorNoPanic(t *testing.T, f func() (int64, error)) {
+	t.Helper()
+
+	var err error
+	require.NotPanics(t, func() {
+		_, err = f()
+	})
+	require.Error(t, err)
+}
+
 func TestEmptyBank(t *testing.T) {
 	t.Parallel()
 
@@ -271,6 +291,52 @@ func TestInvalidArguments(t *testing.T) {
 	require.Error(t, bank.Consolidate([]int{}, 1))
 	require.Error(t, bank.Consolidate([]int{1, 1}, 0))
 	require.Error(t, bank.Consolidate([]int{1}, 1))
+}
+
+func TestInvalidIndices(t *testing.T) {
+	t.Parallel()
+
+	bank := New(2)
+
+	requireBalanceErrorNoPanic(t, func() (int64, error) {
+		return bank.Deposit(-1, 100)
+	})
+	requireBalanceErrorNoPanic(t, func() (int64, error) {
+		return bank.Deposit(2, 100)
+	})
+
+	requireBalanceErrorNoPanic(t, func() (int64, error) {
+		return bank.Withdraw(-1, 100)
+	})
+	requireBalanceErrorNoPanic(t, func() (int64, error) {
+		return bank.Withdraw(2, 100)
+	})
+
+	requireErrorNoPanic(t, func() error {
+		return bank.Transfer(-1, 1, 100)
+	})
+	requireErrorNoPanic(t, func() error {
+		return bank.Transfer(0, 2, 100)
+	})
+
+	requireErrorNoPanic(t, func() error {
+		return bank.Consolidate([]int{-1}, 1)
+	})
+	requireErrorNoPanic(t, func() error {
+		return bank.Consolidate([]int{2}, 1)
+	})
+	requireErrorNoPanic(t, func() error {
+		return bank.Consolidate([]int{0}, -1)
+	})
+	requireErrorNoPanic(t, func() error {
+		return bank.Consolidate([]int{0}, 2)
+	})
+	requireErrorNoPanic(t, func() error {
+		return bank.Consolidate([]int{0, -1}, 1)
+	})
+	requireErrorNoPanic(t, func() error {
+		return bank.Consolidate([]int{0, 2}, 1)
+	})
 }
 
 func TestConsolidateOverflow(t *testing.T) {
