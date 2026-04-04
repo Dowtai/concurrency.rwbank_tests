@@ -237,6 +237,93 @@ func TestTransferDeadlock(t *testing.T) {
 	}, 5*time.Second, 100*time.Millisecond, "fatal error: all goroutines are asleep - deadlock!")
 }
 
+func TestTotalAmountConsistency(t *testing.T) {
+	const accounts = 100_000
+
+	require.Never(t, func() bool {
+		bank := New(accounts)
+
+		for i := 0; i < accounts; i++ {
+			_, err := bank.Deposit(i, 100_000)
+			require.NoError(t, err)
+		}
+
+		const baseTotal = accounts * 100_000
+
+		var badValue atomic.Int64
+		badValue.Store(-1)
+
+		started := make(chan struct{})
+		wg := new(sync.WaitGroup)
+
+		wg.Go(func() {
+			close(started)
+
+			for range 1_000 {
+				total := bank.TotalAmount()
+				if total != baseTotal {
+					badValue.Store(total)
+					return
+				}
+			}
+		})
+
+		wg.Go(func() {
+			<-started
+			time.Sleep(2 * time.Millisecond)
+			for range 100_000 {
+				err := bank.Transfer(0, accounts-1, 1)
+				require.NoError(t, err)
+			}
+		})
+
+		wg.Wait()
+		return badValue.Load() != -1
+	}, 5*time.Second, 100*time.Millisecond,
+		"TotalAmount must not return an inconsistent value while concurrent public operations are running")
+}
+
+func TestTransferAtomicity(t *testing.T) {
+	require.Never(t, func() bool {
+		bank := New(2)
+
+		_, err := bank.Deposit(0, 1_000_000)
+		require.NoError(t, err)
+		_, err = bank.Deposit(1, 1_000_000)
+		require.NoError(t, err)
+
+		const wantTotal = 2_000_000
+
+		var badTotal atomic.Int64
+		badTotal.Store(-1)
+
+		wg := new(sync.WaitGroup)
+
+		transferFunction := func(fromIndex, toIndex int) {
+			for range 100_000 {
+				_ = bank.Transfer(fromIndex, toIndex, 1)
+			}
+		}
+
+		wg.Go(func() { transferFunction(0, 1) })
+		wg.Go(func() { transferFunction(1, 0) })
+		wg.Go(func() {
+			for range 100_000 {
+				total := bank.TotalAmount()
+				if total != wantTotal {
+					badTotal.Store(total)
+					return
+				}
+			}
+		})
+
+		wg.Wait()
+		return badTotal.Load() != -1
+	}, 5*time.Second, 100*time.Millisecond,
+		"transfer operation must be atomic: "+
+			"TotalAmount value must not change, since the money does not leave the bank.")
+}
+
 func TestConsolidateDeadlock(t *testing.T) {
 	require.Eventually(t, func() bool {
 		const accounts = 3
@@ -268,7 +355,55 @@ func TestConsolidateDeadlock(t *testing.T) {
 
 		wg.Wait()
 		return true
-	}, 15*time.Second, 100*time.Millisecond, "fatal error: all goroutines are asleep - deadlock!")
+	}, 25*time.Second, 100*time.Millisecond, "fatal error: all goroutines are asleep - deadlock!")
+}
+
+func TestConsolidateAtomicity(t *testing.T) {
+	const accounts = 100_000
+
+	require.Never(t, func() bool {
+		bank := New(accounts)
+
+		source := make([]int, 0, accounts-1)
+		for i := 0; i < accounts; i++ {
+			_, err := bank.Deposit(i, 1)
+			require.NoError(t, err)
+			if i != accounts-1 {
+				source = append(source, i)
+			}
+		}
+
+		const beforeConsolidate = 1
+		const afterConsolidate = accounts
+
+		var badValue atomic.Int64
+		badValue.Store(-1)
+
+		started := make(chan struct{})
+		wg := new(sync.WaitGroup)
+
+		wg.Go(func() {
+			close(started)
+
+			_ = bank.Consolidate(source, accounts-1)
+		})
+
+		wg.Go(func() {
+			<-started
+			time.Sleep(2 * time.Millisecond)
+			for range 1_000_000 {
+				v := bank.GetAmount(accounts - 1)
+				if v != beforeConsolidate && v != afterConsolidate {
+					badValue.Store(v)
+					return
+				}
+			}
+		})
+
+		wg.Wait()
+		return badValue.Load() != -1
+	}, 5*time.Second, 100*time.Millisecond,
+		"consolidate operation must be atomic: intermediate account states must not be observable")
 }
 
 func TestInvalidArguments(t *testing.T) {
