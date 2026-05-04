@@ -493,6 +493,30 @@ func TestConsolidateOverflow(t *testing.T) {
 	require.EqualValues(t, 0, bank.GetAmount(2))
 }
 
+func TestConsolidateSummaryOverflow(t *testing.T) {
+	t.Parallel()
+
+	n := 10
+
+	bank := New(n + 1)
+	indices := make([]int, 0, n)
+
+	for i := range n {
+		_, err := bank.Deposit(i, MaxAmount)
+		require.NoError(t, err)
+		indices = append(indices, i)
+	}
+
+	err := bank.Consolidate(indices, n)
+	require.ErrorIs(t, err, ErrOverflow)
+
+	for i := range n {
+		require.EqualValues(t, MaxAmount, bank.GetAmount(i))
+	}
+
+	require.EqualValues(t, 0, bank.GetAmount(n))
+}
+
 func TestStressMultithreaded(t *testing.T) {
 	const (
 		accounts        = 100
