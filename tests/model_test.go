@@ -17,7 +17,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func requireErrorNoPanic(t *testing.T, f func() error) {
+func requireErrorIsNoPanic(t *testing.T, expected error, f func() error) {
+	t.Helper()
+	var err error
+	require.NotPanics(t, func() {
+		err = f()
+	})
+	require.ErrorIs(t, err, expected)
+
+}
+
+func requireBalanceErrorIsNoPanic(t *testing.T, expected error, f func() (int64, error)) {
+	t.Helper()
+	var err error
+	require.NotPanics(t, func() {
+		_, err = f()
+	})
+	require.ErrorIs(t, err, expected)
+
+}
+
+func requireErrorContainsNoPanic(t *testing.T, expected string, f func() error) {
 	t.Helper()
 
 	var err error
@@ -25,9 +45,10 @@ func requireErrorNoPanic(t *testing.T, f func() error) {
 		err = f()
 	})
 	require.Error(t, err)
+	require.ErrorContains(t, err, expected)
 }
 
-func requireBalanceErrorNoPanic(t *testing.T, f func() (int64, error)) {
+func requireBalanceErrorContainsNoPanic(t *testing.T, expected string, f func() (int64, error)) {
 	t.Helper()
 
 	var err error
@@ -35,6 +56,7 @@ func requireBalanceErrorNoPanic(t *testing.T, f func() (int64, error)) {
 		_, err = f()
 	})
 	require.Error(t, err)
+	require.ErrorContains(t, err, expected)
 }
 
 func TestEmptyBank(t *testing.T) {
@@ -164,10 +186,9 @@ func TestOverflowDeposit(t *testing.T) {
 
 	_, err := bank.Deposit(0, MaxAmount)
 	require.NoError(t, err)
-
-	_, err = bank.Deposit(0, 1)
-	require.ErrorIs(t, err, ErrOverflow)
-
+	requireBalanceErrorIsNoPanic(t, ErrOverflow, func() (int64, error) {
+		return bank.Deposit(0, 1)
+	})
 	require.Equal(t, MaxAmount, bank.GetAmount(0))
 }
 
@@ -182,9 +203,9 @@ func TestOverflowTransfer(t *testing.T) {
 	_, err = bank.Deposit(1, 1)
 	require.NoError(t, err)
 
-	err = bank.Transfer(1, 0, 1)
-	require.ErrorIs(t, err, ErrOverflow)
-
+	requireErrorIsNoPanic(t, ErrOverflow, func() error {
+		return bank.Transfer(1, 0, 1)
+	})
 	require.Equal(t, MaxAmount, bank.GetAmount(0))
 	require.EqualValues(t, 1, bank.GetAmount(1))
 }
@@ -193,9 +214,9 @@ func TestUnderflowWithdraw(t *testing.T) {
 	t.Parallel()
 
 	bank := New(1)
-
-	_, err := bank.Withdraw(0, 1)
-	require.ErrorIs(t, err, ErrUnderflow)
+	requireBalanceErrorIsNoPanic(t, ErrUnderflow, func() (int64, error) {
+		return bank.Withdraw(0, 1)
+	})
 	require.EqualValues(t, 0, bank.GetAmount(0))
 }
 
@@ -203,10 +224,9 @@ func TestUnderflowTransfer(t *testing.T) {
 	t.Parallel()
 
 	bank := New(2)
-
-	err := bank.Transfer(0, 1, 100)
-	require.ErrorIs(t, err, ErrUnderflow)
-
+	requireErrorIsNoPanic(t, ErrUnderflow, func() error {
+		return bank.Transfer(0, 1, 100)
+	})
 	require.EqualValues(t, 0, bank.GetAmount(0))
 	require.EqualValues(t, 0, bank.GetAmount(1))
 }
@@ -406,70 +426,102 @@ func TestConsolidateAtomicity(t *testing.T) {
 		"consolidate operation must be atomic: intermediate account states must not be observable")
 }
 
+func TestInvalidAmount(t *testing.T) {
+	t.Parallel()
+	bank := New(2)
+	requireBalanceErrorIsNoPanic(t, ErrInvalidAmount, func() (int64, error) {
+		return bank.Deposit(0, 0)
+	})
+	requireBalanceErrorIsNoPanic(t, ErrInvalidAmount, func() (int64, error) {
+		return bank.Deposit(0, -1)
+	})
+	requireBalanceErrorIsNoPanic(t, ErrInvalidAmount, func() (int64, error) {
+		return bank.Withdraw(0, 0)
+	})
+	requireBalanceErrorIsNoPanic(t, ErrInvalidAmount, func() (int64, error) {
+		return bank.Withdraw(0, -1)
+	})
+	requireErrorIsNoPanic(t, ErrInvalidAmount, func() error {
+		return bank.Transfer(0, 1, 0)
+	})
+	requireErrorIsNoPanic(t, ErrInvalidAmount, func() error {
+		return bank.Transfer(0, 1, -1)
+	})
+}
+
 func TestInvalidArguments(t *testing.T) {
 	t.Parallel()
 
 	bank := New(2)
-
-	_, err := bank.Deposit(0, 0)
-	require.ErrorIs(t, err, ErrInvalidAmount)
-
-	_, err = bank.Withdraw(0, 0)
-	require.ErrorIs(t, err, ErrInvalidAmount)
-
-	err = bank.Transfer(0, 0, 100)
-	require.Error(t, err)
-
-	err = bank.Transfer(0, 1, -1)
-	require.ErrorIs(t, err, ErrInvalidAmount)
-
-	require.Error(t, bank.Consolidate([]int{}, 1))
-	require.Error(t, bank.Consolidate([]int{1, 1}, 0))
-	require.Error(t, bank.Consolidate([]int{1}, 1))
+	requireErrorContainsNoPanic(t, "same account", func() error {
+		return bank.Transfer(0, 0, 100)
+	})
+	requireErrorContainsNoPanic(t, "empty", func() error {
+		return bank.Consolidate([]int{}, 1)
+	})
+	requireErrorContainsNoPanic(t, "duplicate", func() error {
+		return bank.Consolidate([]int{1, 1}, 0)
+	})
+	requireErrorContainsNoPanic(t, "same account", func() error {
+		return bank.Consolidate([]int{1}, 1)
+	})
 }
 
 func TestInvalidIndices(t *testing.T) {
 	t.Parallel()
 
 	bank := New(2)
+	const reason = "invalid index"
 
-	requireBalanceErrorNoPanic(t, func() (int64, error) {
+	requireBalanceErrorContainsNoPanic(t, reason, func() (int64, error) {
 		return bank.Deposit(-1, 100)
 	})
-	requireBalanceErrorNoPanic(t, func() (int64, error) {
+
+	requireBalanceErrorContainsNoPanic(t, reason, func() (int64, error) {
 		return bank.Deposit(2, 100)
 	})
 
-	requireBalanceErrorNoPanic(t, func() (int64, error) {
+	requireBalanceErrorContainsNoPanic(t, reason, func() (int64, error) {
 		return bank.Withdraw(-1, 100)
 	})
-	requireBalanceErrorNoPanic(t, func() (int64, error) {
+
+	requireBalanceErrorContainsNoPanic(t, reason, func() (int64, error) {
 		return bank.Withdraw(2, 100)
 	})
 
-	requireErrorNoPanic(t, func() error {
+	requireErrorContainsNoPanic(t, reason, func() error {
 		return bank.Transfer(-1, 1, 100)
 	})
-	requireErrorNoPanic(t, func() error {
+
+	requireErrorContainsNoPanic(t, reason, func() error {
 		return bank.Transfer(0, 2, 100)
 	})
 
-	requireErrorNoPanic(t, func() error {
+	requireErrorContainsNoPanic(t, reason, func() error {
+		return bank.Transfer(-1, 2, 100)
+	})
+
+	requireErrorContainsNoPanic(t, reason, func() error {
 		return bank.Consolidate([]int{-1}, 1)
 	})
-	requireErrorNoPanic(t, func() error {
+
+	requireErrorContainsNoPanic(t, reason, func() error {
 		return bank.Consolidate([]int{2}, 1)
 	})
-	requireErrorNoPanic(t, func() error {
+
+	requireErrorContainsNoPanic(t, reason, func() error {
 		return bank.Consolidate([]int{0}, -1)
 	})
-	requireErrorNoPanic(t, func() error {
+
+	requireErrorContainsNoPanic(t, reason, func() error {
 		return bank.Consolidate([]int{0}, 2)
 	})
-	requireErrorNoPanic(t, func() error {
+
+	requireErrorContainsNoPanic(t, reason, func() error {
 		return bank.Consolidate([]int{0, -1}, 1)
 	})
-	requireErrorNoPanic(t, func() error {
+
+	requireErrorContainsNoPanic(t, reason, func() error {
 		return bank.Consolidate([]int{0, 2}, 1)
 	})
 }
@@ -484,10 +536,9 @@ func TestConsolidateOverflow(t *testing.T) {
 
 	_, err = bank.Deposit(1, 1)
 	require.NoError(t, err)
-
-	err = bank.Consolidate([]int{0, 1}, 2)
-	require.ErrorIs(t, err, ErrOverflow)
-
+	requireErrorIsNoPanic(t, ErrOverflow, func() error {
+		return bank.Consolidate([]int{0, 1}, 2)
+	})
 	require.EqualValues(t, MaxAmount, bank.GetAmount(0))
 	require.EqualValues(t, 1, bank.GetAmount(1))
 	require.EqualValues(t, 0, bank.GetAmount(2))
