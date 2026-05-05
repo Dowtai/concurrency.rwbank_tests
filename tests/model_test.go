@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"math"
 	"math/rand"
 	"path/filepath"
 	"slices"
@@ -66,7 +67,9 @@ func TestEmptyBank(t *testing.T) {
 	require.Equal(t, 10, bank.NumberOfAccounts())
 
 	for i := 0; i < 10; i++ {
-		require.Zero(t, bank.GetAmount(i))
+		amount, err := bank.GetAmount(i)
+		require.NoError(t, err)
+		require.Zero(t, amount)
 	}
 
 	require.Zero(t, bank.TotalAmount())
@@ -81,8 +84,11 @@ func TestDeposit(t *testing.T) {
 	result, err := bank.Deposit(1, amount)
 	require.NoError(t, err)
 
+	amount1, err := bank.GetAmount(1)
+	require.NoError(t, err)
+
 	require.Equal(t, amount, result)
-	require.Equal(t, amount, bank.GetAmount(1))
+	require.Equal(t, amount, amount1)
 	require.Equal(t, amount, bank.TotalAmount())
 }
 
@@ -98,8 +104,11 @@ func TestWithdraw(t *testing.T) {
 	result, err := bank.Withdraw(1, 1234)
 	require.NoError(t, err)
 
+	amount1, err := bank.GetAmount(1)
+	require.NoError(t, err)
+
 	require.EqualValues(t, 1111, result)
-	require.EqualValues(t, 1111, bank.GetAmount(1))
+	require.EqualValues(t, 1111, amount1)
 	require.EqualValues(t, 1111, bank.TotalAmount())
 }
 
@@ -113,8 +122,13 @@ func TestTransfer(t *testing.T) {
 	err = bank.Transfer(1, 2, 5432)
 	require.NoError(t, err)
 
-	require.EqualValues(t, 9876-5432, bank.GetAmount(1))
-	require.EqualValues(t, 5432, bank.GetAmount(2))
+	amount1, err := bank.GetAmount(1)
+	require.NoError(t, err)
+	amount2, err := bank.GetAmount(2)
+	require.NoError(t, err)
+
+	require.EqualValues(t, 9876-5432, amount1)
+	require.EqualValues(t, 5432, amount2)
 	require.EqualValues(t, 9876, bank.TotalAmount())
 }
 
@@ -134,15 +148,27 @@ func TestConsolidate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, tmp, src)
 
-	require.Zero(t, bank.GetAmount(1))
-	require.Zero(t, bank.GetAmount(2))
-	require.EqualValues(t, 4823+4234, bank.GetAmount(4))
+	amount1, err := bank.GetAmount(1)
+	require.NoError(t, err)
+	amount2, err := bank.GetAmount(2)
+	require.NoError(t, err)
+	amount4, err := bank.GetAmount(4)
+	require.NoError(t, err)
+
+	require.Zero(t, amount1)
+	require.Zero(t, amount2)
+	require.EqualValues(t, 4823+4234, amount4)
 
 	err = bank.Consolidate([]int{3}, 4)
 	require.NoError(t, err)
-	require.Zero(t, bank.GetAmount(3))
+	amount3, err := bank.GetAmount(3)
+	require.NoError(t, err)
+	amount4, err = bank.GetAmount(4)
+	require.NoError(t, err)
 
-	require.Equal(t, totalBefore, bank.GetAmount(4))
+	require.Zero(t, amount3)
+
+	require.Equal(t, totalBefore, amount4)
 	require.Equal(t, totalBefore, bank.TotalAmount())
 }
 
@@ -172,10 +198,15 @@ func TestConsolidateRandomAccounts(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, id := range sourceIDs {
-		require.Zero(t, bank.GetAmount(id), "source account %d should be empty", id)
+		amount, err := bank.GetAmount(id)
+		require.NoError(t, err)
+		require.Zero(t, amount, "source account %d should be empty", id)
 	}
 
-	require.EqualValues(t, totalExpected, bank.GetAmount(targetID))
+	amount, err := bank.GetAmount(targetID)
+	require.NoError(t, err)
+
+	require.EqualValues(t, totalExpected, amount)
 	require.Equal(t, totalBefore, bank.TotalAmount())
 }
 
@@ -184,12 +215,16 @@ func TestOverflowDeposit(t *testing.T) {
 
 	bank := New(1)
 
-	_, err := bank.Deposit(0, MaxAmount)
+	_, err := bank.Deposit(0, DefaultMaxAmount)
 	require.NoError(t, err)
 	requireBalanceErrorIsNoPanic(t, ErrOverflow, func() (int64, error) {
 		return bank.Deposit(0, 1)
 	})
-	require.Equal(t, MaxAmount, bank.GetAmount(0))
+
+	amount, err := bank.GetAmount(0)
+	require.NoError(t, err)
+
+	require.Equal(t, DefaultMaxAmount, amount)
 }
 
 func TestOverflowTransfer(t *testing.T) {
@@ -197,7 +232,7 @@ func TestOverflowTransfer(t *testing.T) {
 
 	bank := New(2)
 
-	_, err := bank.Deposit(0, MaxAmount)
+	_, err := bank.Deposit(0, DefaultMaxAmount)
 	require.NoError(t, err)
 
 	_, err = bank.Deposit(1, 1)
@@ -206,8 +241,14 @@ func TestOverflowTransfer(t *testing.T) {
 	requireErrorIsNoPanic(t, ErrOverflow, func() error {
 		return bank.Transfer(1, 0, 1)
 	})
-	require.Equal(t, MaxAmount, bank.GetAmount(0))
-	require.EqualValues(t, 1, bank.GetAmount(1))
+
+	amount0, err := bank.GetAmount(0)
+	require.NoError(t, err)
+	amount1, err := bank.GetAmount(1)
+	require.NoError(t, err)
+
+	require.Equal(t, DefaultMaxAmount, amount0)
+	require.EqualValues(t, 1, amount1)
 }
 
 func TestUnderflowWithdraw(t *testing.T) {
@@ -217,7 +258,9 @@ func TestUnderflowWithdraw(t *testing.T) {
 	requireBalanceErrorIsNoPanic(t, ErrUnderflow, func() (int64, error) {
 		return bank.Withdraw(0, 1)
 	})
-	require.EqualValues(t, 0, bank.GetAmount(0))
+	amount, err := bank.GetAmount(0)
+	require.NoError(t, err)
+	require.EqualValues(t, 0, amount)
 }
 
 func TestUnderflowTransfer(t *testing.T) {
@@ -227,8 +270,12 @@ func TestUnderflowTransfer(t *testing.T) {
 	requireErrorIsNoPanic(t, ErrUnderflow, func() error {
 		return bank.Transfer(0, 1, 100)
 	})
-	require.EqualValues(t, 0, bank.GetAmount(0))
-	require.EqualValues(t, 0, bank.GetAmount(1))
+	amount0, err := bank.GetAmount(0)
+	require.NoError(t, err)
+	amount1, err := bank.GetAmount(1)
+	require.NoError(t, err)
+	require.EqualValues(t, 0, amount0)
+	require.EqualValues(t, 0, amount1)
 }
 
 func TestTransferDeadlock(t *testing.T) {
@@ -412,7 +459,8 @@ func TestConsolidateAtomicity(t *testing.T) {
 			<-started
 			time.Sleep(2 * time.Millisecond)
 			for range 1_000_000 {
-				v := bank.GetAmount(accounts - 1)
+				v, err := bank.GetAmount(accounts - 1)
+				require.NoError(t, err)
 				if v != beforeConsolidate && v != afterConsolidate {
 					badValue.Store(v)
 					return
@@ -531,7 +579,7 @@ func TestConsolidateOverflow(t *testing.T) {
 
 	bank := New(3)
 
-	_, err := bank.Deposit(0, MaxAmount)
+	_, err := bank.Deposit(0, DefaultMaxAmount)
 	require.NoError(t, err)
 
 	_, err = bank.Deposit(1, 1)
@@ -539,9 +587,15 @@ func TestConsolidateOverflow(t *testing.T) {
 	requireErrorIsNoPanic(t, ErrOverflow, func() error {
 		return bank.Consolidate([]int{0, 1}, 2)
 	})
-	require.EqualValues(t, MaxAmount, bank.GetAmount(0))
-	require.EqualValues(t, 1, bank.GetAmount(1))
-	require.EqualValues(t, 0, bank.GetAmount(2))
+	amount0, err := bank.GetAmount(0)
+	require.NoError(t, err)
+	amount1, err := bank.GetAmount(1)
+	require.NoError(t, err)
+	amount2, err := bank.GetAmount(2)
+	require.NoError(t, err)
+	require.EqualValues(t, DefaultMaxAmount, amount0)
+	require.EqualValues(t, 1, amount1)
+	require.EqualValues(t, 0, amount2)
 }
 
 func TestConsolidateSummaryOverflow(t *testing.T) {
@@ -553,7 +607,7 @@ func TestConsolidateSummaryOverflow(t *testing.T) {
 	indices := make([]int, 0, n)
 
 	for i := range n {
-		_, err := bank.Deposit(i, MaxAmount)
+		_, err := bank.Deposit(i, DefaultMaxAmount)
 		require.NoError(t, err)
 		indices = append(indices, i)
 	}
@@ -562,10 +616,117 @@ func TestConsolidateSummaryOverflow(t *testing.T) {
 	require.ErrorIs(t, err, ErrOverflow)
 
 	for i := range n {
-		require.EqualValues(t, MaxAmount, bank.GetAmount(i))
+		amount, err := bank.GetAmount(i)
+		require.NoError(t, err)
+		require.EqualValues(t, DefaultMaxAmount, amount)
 	}
 
-	require.EqualValues(t, 0, bank.GetAmount(n))
+	amount, err := bank.GetAmount(n)
+	require.NoError(t, err)
+
+	require.EqualValues(t, 0, amount)
+}
+
+func TestVariadicMaxAmountConstructor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		args        []int64
+		expectPanic bool
+	}{
+		{
+			name:        "default max amount",
+			args:        nil,
+			expectPanic: false,
+		},
+		{
+			name:        "custom valid max amount",
+			args:        []int64{1000},
+			expectPanic: false,
+		},
+		{
+			name:        "multiple args uses first",
+			args:        []int64{500, -100, 0},
+			expectPanic: false,
+		},
+		{
+			name:        "zero max amount",
+			args:        []int64{0},
+			expectPanic: true,
+		},
+		{
+			name:        "negative max amount",
+			args:        []int64{-1},
+			expectPanic: true,
+		},
+		{
+			name:        "int64 max value",
+			args:        []int64{math.MaxInt64},
+			expectPanic: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if tt.expectPanic {
+				require.PanicsWithValue(t, ErrInvalidMaxAmount, func() {
+					New(1, tt.args...)
+				})
+				return
+			}
+
+			var bank *bankImpl
+			require.NotPanics(t, func() {
+				bank = New(1, tt.args...)
+			})
+
+			require.NotNil(t, bank)
+
+			expectedMax := DefaultMaxAmount
+			if len(tt.args) > 0 {
+				expectedMax = tt.args[0]
+			}
+
+			_, err := bank.Deposit(0, expectedMax)
+			require.NoError(t, err)
+
+			_, err = bank.Deposit(0, 1)
+			require.ErrorIs(t, err, ErrOverflow)
+		})
+	}
+}
+
+func TestTransferWithCustomMaxAmount(t *testing.T) {
+	t.Parallel()
+
+	bank := New(2, 500)
+
+	_, err := bank.Deposit(0, 500)
+	require.NoError(t, err)
+
+	_, err = bank.Deposit(1, 100)
+	require.NoError(t, err)
+
+	err = bank.Transfer(0, 1, 401)
+	require.ErrorIs(t, err, ErrOverflow)
+
+	err = bank.Transfer(0, 1, 400)
+	require.NoError(t, err)
+}
+
+func TestOverflowWrapAround(t *testing.T) {
+	t.Parallel()
+
+	bank := New(1, 1000)
+
+	_, err := bank.Deposit(0, 10)
+	require.NoError(t, err)
+
+	_, err = bank.Deposit(0, math.MaxInt64)
+	require.ErrorIs(t, err, ErrOverflow)
 }
 
 func TestStressMultithreaded(t *testing.T) {
@@ -610,7 +771,7 @@ func TestStressMultithreaded(t *testing.T) {
 					atomic.AddInt64(&expected[i], -amt)
 					atomic.AddInt64(&expected[j], amt)
 				case 3:
-					_ = bank.GetAmount(i)
+					_, _ = bank.GetAmount(i)
 				}
 			}
 		})
@@ -622,7 +783,8 @@ func TestStressMultithreaded(t *testing.T) {
 
 	var total int64
 	for i := 0; i < accounts; i++ {
-		actual := bank.GetAmount(i)
+		actual, err := bank.GetAmount(i)
+		require.NoError(t, err)
 		total += actual
 		require.Equal(t, expected[i], actual, "account[%d] mismatch", i)
 	}

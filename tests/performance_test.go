@@ -60,7 +60,7 @@ func TestTransferFineGrainedLocks(t *testing.T) {
 
 		bank := New(1000)
 		for i := range 1000 {
-			bank.Deposit(i, MaxAmount)
+			bank.Deposit(i, DefaultMaxAmount)
 		}
 		b.ResetTimer()
 
@@ -114,7 +114,7 @@ func TestConsolidateFineGrainedLocks(t *testing.T) {
 
 		bank := New(1000)
 		for i := range 1000 {
-			bank.Deposit(i, MaxAmount)
+			bank.Deposit(i, DefaultMaxAmount)
 		}
 		b.ResetTimer()
 

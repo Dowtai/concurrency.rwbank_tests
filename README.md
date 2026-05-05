@@ -7,12 +7,15 @@
 ---
 
 ```go
-func New(accountsNum int) *bankImpl {
-	...
+func New(accountsNum int, maxAmount ...int64) *bankImpl {
+...
 }
 ```
 
-В конструкторе банка передаётся количество аккаунтов `accountsNum`
+В конструкторе банка передаётся количество аккаунтов `accountsNum`,
+а также может передаваться ограничения на количество денег у пользователя.
+Если ограничение не передаётся, необходимо использовать `DefaultMaxAmount`.
+
 
 ---
 
@@ -27,7 +30,7 @@ func (b *bankImpl) NumberOfAccounts() int {
 ---
 
 ```go
-func (b *bankImpl) GetAmount(index int) int64 {
+func (b *bankImpl) GetAmount(index int) (int64, error) {
     ...
 }
 ```
@@ -106,6 +109,11 @@ func (b *bankImpl) Consolidate(fromIndices []int, toIndex int) error {
 ```
 
 Метод `Consolidate` переводит все деньги с аккаунтов `fromIndices` на аккаунт `toIndex`.
+
+---
+Общие советы по выполнению:
+
+Стоит обратить внимание на создание ошибок при возврате, и подумать как лучше это сделать.
 
 ## Сдача
 * Решение необходимо реализовать в файле [bank.go](./internal/bank/bank.go)
