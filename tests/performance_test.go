@@ -10,7 +10,46 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestReadOperationsPerformance(t *testing.T) {
+func TestGetAmountPerformance(t *testing.T) {
+	bankPerformance := testing.Benchmark(func(b *testing.B) {
+		b.ReportAllocs()
+
+		bank := New(10)
+		b.ResetTimer()
+
+		b.SetParallelism(10)
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				bank.GetAmount(rand.N[int](10))
+			}
+		})
+	})
+
+	emulatorPerformance := testing.Benchmark(func(b *testing.B) {
+		b.ReportAllocs()
+
+		mx := make([]sync.RWMutex, 10)
+		b.ResetTimer()
+
+		b.SetParallelism(10)
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				idx := rand.N[int](10)
+
+				mx[idx].RLock()
+
+				v := 0
+				v++
+
+				mx[idx].RUnlock()
+			}
+		})
+	})
+
+	require.LessOrEqual(t, float64(bankPerformance.NsPerOp())/float64(emulatorPerformance.NsPerOp()), 1.5)
+}
+
+func TestTotalAmountPerformance(t *testing.T) {
 	bankPerformance := testing.Benchmark(func(b *testing.B) {
 		b.ReportAllocs()
 
@@ -52,6 +91,87 @@ func TestReadOperationsPerformance(t *testing.T) {
 	})
 
 	require.LessOrEqual(t, float64(bankPerformance.NsPerOp())/float64(emulatorPerformance.NsPerOp()), 1.5)
+}
+
+func TestDepositPerformance(t *testing.T) {
+	bankPerformance := testing.Benchmark(func(b *testing.B) {
+		b.ReportAllocs()
+
+		bank := New(1000)
+		b.ResetTimer()
+
+		b.SetParallelism(10)
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				bank.Deposit(rand.N[int](1000), 1)
+			}
+		})
+	})
+
+	emulatorPerformance := testing.Benchmark(func(b *testing.B) {
+		b.ReportAllocs()
+
+		mx := make([]sync.RWMutex, 1000)
+		b.ResetTimer()
+
+		b.SetParallelism(10)
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				idx := rand.N[int](1000)
+
+				mx[idx].Lock()
+
+				v := 0
+				v++
+
+				mx[idx].Unlock()
+			}
+		})
+	})
+
+	require.LessOrEqual(t, float64(bankPerformance.NsPerOp())/float64(emulatorPerformance.NsPerOp()), 3.)
+}
+
+func TestWithdrawPerformance(t *testing.T) {
+	bankPerformance := testing.Benchmark(func(b *testing.B) {
+		b.ReportAllocs()
+
+		bank := New(1000)
+		for i := range 1000 {
+			bank.Deposit(i, DefaultMaxAmount)
+		}
+		b.ResetTimer()
+
+		b.SetParallelism(10)
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				bank.Withdraw(rand.N[int](1000), 1)
+			}
+		})
+	})
+
+	emulatorPerformance := testing.Benchmark(func(b *testing.B) {
+		b.ReportAllocs()
+
+		mx := make([]sync.RWMutex, 1000)
+		b.ResetTimer()
+
+		b.SetParallelism(10)
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				idx := rand.N[int](1000)
+
+				mx[idx].Lock()
+
+				v := 0
+				v++
+
+				mx[idx].Unlock()
+			}
+		})
+	})
+
+	require.LessOrEqual(t, float64(bankPerformance.NsPerOp())/float64(emulatorPerformance.NsPerOp()), 3.)
 }
 
 func TestTransferFineGrainedLocks(t *testing.T) {
